@@ -17,11 +17,15 @@
 ### Android
 
 - 要求 **Android 7.0（API 24）及以上**，目前只提供 **64 位 arm64** 包（约 38 MB）
-- 安装包在任一仓库的 Releases 页下载 `app-release.apk`：
-  [Gitee](https://gitee.com/dannylam/listener/releases) ·
-  [GitCode](https://gitcode.com/DannyLam/Listener/releases) ·
-  [GitHub](https://github.com/mallynad/Listener/releases)
-- 若 Releases 暂时没有产物，可按 [开发与构建](docs/DEVELOPMENT.md) 自行编译；`android/key.properties` 缺失时会自动回退 debug 签名，不影响本地使用
+- 安装包只发布在这两个平台，下载 `app-release.apk`：
+
+  | 平台 | 下载地址 |
+  |---|---|
+  | **Gitee** | <https://gitee.com/dannylam/listener/releases> |
+  | **GitCode** | <https://gitcode.com/DannyLam/Listener/releases> |
+
+- **GitHub 只托管源码，不提供安装包**：<https://github.com/mallynad/Listener>
+- 若 Releases 里暂时没有产物，可按 [开发与构建](docs/DEVELOPMENT.md) 自行编译；`android/key.properties` 缺失时会自动回退 debug 签名，不影响本地使用
 - 首次安装需要在系统里允许"安装未知来源应用"
 
 ### macOS
