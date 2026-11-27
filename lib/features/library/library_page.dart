@@ -6,10 +6,14 @@ import 'package:provider/provider.dart';
 import '../../controllers/player_controller.dart';
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../../models/playlist.dart';
 import '../../models/track.dart';
 import '../../widgets/cover_art.dart';
+import '../../widgets/favorite_button.dart';
 import '../../widgets/page_header.dart';
 import 'library_controller.dart';
+import 'playlist_controller.dart';
+import 'playlist_page.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -30,6 +34,7 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     final LibraryController lib = context.watch<LibraryController>();
+    final PlaylistController lists = context.watch<PlaylistController>();
     final PlayerController player = context.watch<PlayerController>();
     final List<Track> tracks = lib.visible;
 
@@ -37,10 +42,10 @@ class _LibraryPageState extends State<LibraryPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         PageHeader(
-          title: '本地音乐',
+          title: '媒体库',
           subtitle: lib.tracks.isEmpty
               ? '导入文件夹后会自动读取标签与封面'
-              : '${lib.tracks.length} 首 · ${lib.folders.length} 个文件夹',
+              : '${lib.tracks.length} 首 · ${lib.folders.length} 个文件夹 · ${lists.playlists.length} 个歌单',
           actions: <Widget>[
             OutlinedButton.icon(
               onPressed: lib.scanning ? null : lib.addFiles,
@@ -72,8 +77,9 @@ class _LibraryPageState extends State<LibraryPage> {
             ),
           ],
         ),
+        _PlaylistStrip(playlists: lists.playlists, controller: lists),
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 10),
           child: TextField(
             controller: _search,
             onChanged: lib.setQuery,
@@ -149,6 +155,143 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 }
 
+/// 歌单横向条：点击进入详情，尾部是新建入口。
+class _PlaylistStrip extends StatelessWidget {
+  const _PlaylistStrip({required this.playlists, required this.controller});
+
+  final List<Playlist> playlists;
+  final PlaylistController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 72,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+        itemCount: playlists.length + 1,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (BuildContext context, int index) {
+          if (index == playlists.length) {
+            return _PlaylistCard(
+              title: '新建歌单',
+              subtitle: '把喜欢的放一起',
+              icon: Icons.add_rounded,
+              onTap: () => _createPlaylist(context),
+            );
+          }
+          final Playlist p = playlists[index];
+          return _PlaylistCard(
+            title: p.name,
+            subtitle: '${p.tracks.length} 首',
+            icon: Icons.queue_music_rounded,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PlaylistPage(playlistId: p.id),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _createPlaylist(BuildContext context) async {
+    final TextEditingController input = TextEditingController();
+    final String? name = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceHigh,
+        title: const Text('新建歌单', style: TextStyle(fontSize: 16)),
+        content: TextField(
+          controller: input,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '歌单名称'),
+          onSubmitted: (String v) => Navigator.of(ctx).pop(v),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(input.text),
+            child: const Text('创建'),
+          ),
+        ],
+      ),
+    );
+    input.dispose();
+    if (name != null && name.trim().isNotEmpty) {
+      await controller.create(name);
+    }
+  }
+}
+
+class _PlaylistCard extends StatelessWidget {
+  const _PlaylistCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        width: 142,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceHigh.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(icon, size: 18, color: AppColors.accent),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _TrackRow extends StatefulWidget {
   const _TrackRow({
     required this.index,
@@ -173,6 +316,8 @@ class _TrackRowState extends State<_TrackRow> {
 
   @override
   Widget build(BuildContext context) {
+    final bool compact = MediaQuery.sizeOf(context).width < 760;
+    final bool showActions = compact || _hover;
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -235,7 +380,7 @@ class _TrackRowState extends State<_TrackRow> {
                   ],
                 ),
               ),
-              if (widget.track.extra != null)
+              if (widget.track.extra != null && !compact)
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Text(
@@ -253,13 +398,14 @@ class _TrackRowState extends State<_TrackRow> {
                   color: AppColors.textSecondary,
                 ),
               ),
-              const SizedBox(width: 8),
-              if (_hover)
+              const SizedBox(width: 4),
+              FavoriteButton(track: widget.track, size: 18),
+              if (showActions)
                 IconButton(
                   tooltip: '加入队列',
                   visualDensity: VisualDensity.compact,
                   onPressed: widget.onEnqueue,
-                  icon: const Icon(Icons.playlist_add_rounded, size: 18),
+                  icon: const Icon(Icons.playlist_play_rounded, size: 18),
                 )
               else
                 const SizedBox(width: 40),

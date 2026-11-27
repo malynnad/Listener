@@ -25,8 +25,8 @@ class _ShellPageState extends State<ShellPage> {
 
   static const List<(IconData, IconData, String)> _destinations =
       <(IconData, IconData, String)>[
-    (Icons.library_music_outlined, Icons.library_music_rounded, '本地'),
-    (Icons.play_circle_outline_rounded, Icons.play_circle_fill_rounded, 'B站'),
+    (Icons.library_music_outlined, Icons.library_music_rounded, '媒体库'),
+    (Icons.search_rounded, Icons.search_rounded, '搜索'),
     (Icons.radio_outlined, Icons.radio_rounded, '电台'),
   ];
 

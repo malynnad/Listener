@@ -1,7 +1,7 @@
 name: listener
 description: "Listener - 本地音乐 / B站 / 电台 一体化播放器"
 publish_to: 'none'
-version: 0.1.1+2
+version: 0.1.2+3
 
 environment:
   sdk: ^3.14.0

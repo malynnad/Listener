@@ -105,34 +105,40 @@ class LibraryController extends ChangeNotifier {
   /// 分区存储下无法遍历整块外部存储，只能读系统媒体目录与各家播放器的下载目录。
   /// 权限在 Android 13+ 是 READ_MEDIA_AUDIO，12 及以下是 READ_EXTERNAL_STORAGE；
   /// 旧系统上请求 audio 会直接返回 denied，因此逐个尝试、任一通过即可。
+  ///
+  /// 应用自己的外部目录（B 站音轨的落地处）不受分区存储限制、也不需要任何权限，
+  /// 所以无论媒体权限是否授予都会一并扫描——否则用户下载完在本地库里根本看不到。
   Future<void> scanDeviceMusic() async {
     if (!Platform.isAndroid) return;
     _status = '正在申请媒体权限…';
     notifyListeners();
 
+    final String ownDownloads = (await AppPaths.downloadDir()).path;
+
     PermissionStatus granted = await Permission.audio.request();
     if (!granted.isGranted) {
       granted = await Permission.storage.request();
     }
-    if (!granted.isGranted) {
-      _status = granted.isPermanentlyDenied
-          ? '媒体权限已被拒绝，请到 设置 → 应用 → Listener → 权限 中开启后重试'
-          : '未授予媒体权限，无法扫描手机音乐';
-      notifyListeners();
-      return;
-    }
+    final bool hasMediaAccess = granted.isGranted;
 
-    final List<String> roots = AppConfig.androidMusicRoots
-        .where((String dir) => Directory(dir).existsSync())
-        .toList();
+    final List<String> roots = <String>[
+      if (hasMediaAccess) ...AppConfig.androidMusicRoots,
+      ownDownloads,
+    ].where((String dir) => Directory(dir).existsSync()).toList();
     if (roots.isEmpty) {
-      _status = '没有找到标准音乐目录，可改用「添加文件」手动选择';
+      _status = '没有找到可扫描的目录，可改用「添加文件」手动选择';
       notifyListeners();
       return;
     }
     _folders = <String>{..._folders, ...roots}.toList();
     await _persist();
     await rescan();
+    if (!hasMediaAccess) {
+      _status = granted.isPermanentlyDenied
+          ? '媒体权限已被拒绝，本次只扫描了应用内下载目录；可到 设置 → 应用 → Listener → 权限 开启'
+          : '未授予媒体权限，本次只扫描了应用内下载目录';
+      notifyListeners();
+    }
   }
 
   Future<void> addFiles() async {
@@ -271,9 +277,13 @@ List<Map<String, dynamic>> scanInIsolate(
       for (final FileSystemEntity entity
           in dir.listSync(recursive: true, followLinks: false)) {
         if (entity is! File) continue;
-        // 手机上 Android/data 等目录体量大且不含用户音乐，直接跳过。
+        // 手机上 Android/data 等目录体量大且不含用户音乐，直接跳过；
+        // 但本应用自己的下载目录要放行，否则 B 站下载的曲子扫不到。
         final String path = entity.path;
-        if (AppConfig.scanSkipSegments.any(path.contains)) continue;
+        if (!path.contains(AppConfig.ownDataSegment) &&
+            AppConfig.scanSkipSegments.any(path.contains)) {
+          continue;
+        }
         handle(path);
       }
     } catch (_) {

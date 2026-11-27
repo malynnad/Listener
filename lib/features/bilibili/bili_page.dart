@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/format.dart';
 import '../../core/theme.dart';
+import '../../models/track.dart';
 import '../../widgets/cover_art.dart';
+import '../../widgets/favorite_button.dart';
 import '../../widgets/page_header.dart';
 import 'bili_controller.dart';
 import 'bili_models.dart';
@@ -49,10 +51,10 @@ class _BiliPageState extends State<BiliPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         PageHeader(
-          title: 'B站',
+          title: '搜索',
           subtitle: bili.isLoggedIn
               ? '已登录 ${bili.user?.name ?? ''} · 可获取账号权限内的最高码率'
-              : '未登录状态下多数音轨仅 64K，建议扫码登录',
+              : '登录后才能搜索 · 未登录请求会被 B 站风控拦成空结果',
           actions: <Widget>[
             IconButton(
               tooltip: '打开下载目录',
@@ -70,16 +72,18 @@ class _BiliPageState extends State<BiliPage> {
                 child: TextField(
                   controller: _search,
                   textInputAction: TextInputAction.search,
-                  onSubmitted: bili.search,
-                  decoration: const InputDecoration(
-                    hintText: '搜索歌曲、翻唱、现场、纯音乐…',
-                    prefixIcon: Icon(Icons.search_rounded, size: 18),
+                  onSubmitted: (String value) => _submitSearch(bili, value),
+                  decoration: InputDecoration(
+                    hintText: bili.isLoggedIn
+                        ? '搜索歌曲、翻唱、现场、纯音乐…'
+                        : '登录后可搜索',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 18),
                   ),
                 ),
               ),
               const SizedBox(width: 10),
               FilledButton(
-                onPressed: () => bili.search(_search.text),
+                onPressed: () => _submitSearch(bili, _search.text),
                 child: const Text('搜索'),
               ),
             ],
@@ -99,8 +103,10 @@ class _BiliPageState extends State<BiliPage> {
           child: results.isEmpty
               ? EmptyHint(
                   icon: Icons.travel_explore_rounded,
-                  title: '从 B 站找歌',
-                  description: '输入关键词搜索视频，Listener 会抽取其中的音轨直接播放，\n登录后可下载为本地文件。',
+                  title: bili.isLoggedIn ? '从 B 站找歌' : '先登录，再搜索',
+                  description: bili.isLoggedIn
+                      ? '输入关键词搜索视频，Listener 会抽取其中的音轨直接播放，\n并可按账号权限下载为本地文件。'
+                      : '未登录的搜索请求会被 B 站风控拦截，只会返回空结果，\n所以这里要求先扫码登录。登录后即可搜索、播放并下载。',
                   actions: <Widget>[
                     if (!bili.isLoggedIn)
                       FilledButton.tonal(
@@ -116,6 +122,7 @@ class _BiliPageState extends State<BiliPage> {
                     final BiliSearchResult item = results[index];
                     return _BiliRow(
                       item: item,
+                      stored: bili.stubOf(item),
                       progress: bili.progress[item.bvid],
                       downloaded: bili.downloads.containsKey(item.bvid),
                       onPlay: () => bili.play(item),
@@ -129,7 +136,21 @@ class _BiliPageState extends State<BiliPage> {
     );
   }
 
-  Future<void> _openLogin(BiliController bili) async {
+  /// 搜索入口统一走这里：未登录先引导登录，登录成功后自动接着搜。
+  void _submitSearch(BiliController bili, String keyword) {
+    final String kw = keyword.trim();
+    if (!bili.isLoggedIn) {
+      _openLogin(bili, pendingKeyword: kw);
+      return;
+    }
+    if (kw.isEmpty) return;
+    bili.search(kw);
+  }
+
+  Future<void> _openLogin(
+    BiliController bili, {
+    String pendingKeyword = '',
+  }) async {
     await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -140,6 +161,9 @@ class _BiliPageState extends State<BiliPage> {
         onSuccess: bili.refreshUser,
       ),
     );
+    if (bili.isLoggedIn && pendingKeyword.isNotEmpty) {
+      await bili.search(pendingKeyword);
+    }
   }
 }
 
@@ -216,6 +240,7 @@ class _AccountChip extends StatelessWidget {
 class _BiliRow extends StatefulWidget {
   const _BiliRow({
     required this.item,
+    required this.stored,
     required this.progress,
     required this.downloaded,
     required this.onPlay,
@@ -224,6 +249,9 @@ class _BiliRow extends StatefulWidget {
   });
 
   final BiliSearchResult item;
+
+  /// 加入歌单时保存的占位曲目（只带元数据，播放时再解析直链）。
+  final Track stored;
   final double? progress;
   final bool downloaded;
   final VoidCallback onPlay;
@@ -311,6 +339,7 @@ class _BiliRowState extends State<_BiliRow> {
                 ),
               ),
               const SizedBox(width: 8),
+              FavoriteButton(track: widget.stored, size: 20),
               if (progress != null)
                 SizedBox(
                   width: 34,
@@ -326,6 +355,7 @@ class _BiliRowState extends State<_BiliRow> {
               else if (widget.downloaded)
                 const IconButton(
                   tooltip: '已下载',
+                  visualDensity: VisualDensity.compact,
                   onPressed: null,
                   icon: Icon(Icons.download_done_rounded,
                       size: 20, color: AppColors.accent),
@@ -333,11 +363,13 @@ class _BiliRowState extends State<_BiliRow> {
               else
                 IconButton(
                   tooltip: '下载音频',
+                  visualDensity: VisualDensity.compact,
                   onPressed: widget.onDownload,
                   icon: const Icon(Icons.download_rounded, size: 20),
                 ),
               IconButton(
                 tooltip: '加入队列',
+                visualDensity: VisualDensity.compact,
                 onPressed: widget.onEnqueue,
                 icon: const Icon(Icons.playlist_add_rounded, size: 20),
               ),

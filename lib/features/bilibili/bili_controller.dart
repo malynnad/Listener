@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import '../../controllers/player_controller.dart';
 import '../../core/config.dart';
@@ -18,6 +19,7 @@ class BiliController extends ChangeNotifier {
     BiliAuthService? auth,
     BiliClient? client,
     BiliDownloader? downloader,
+    this.onDownloaded,
   })  : _player = player,
         auth = auth ?? BiliAuthService(),
         _downloader = downloader ?? BiliDownloader(),
@@ -29,6 +31,9 @@ class BiliController extends ChangeNotifier {
   final BiliAuthService auth;
   final BiliDownloader _downloader;
   final BiliClient? _clientOverride;
+
+  /// 下载完成后回调，用于让媒体库重扫一次。
+  final VoidCallback? onDownloaded;
   late final BiliClient _client =
       _clientOverride ?? BiliClient(cookieProvider: () => auth.cookies);
 
@@ -68,13 +73,39 @@ class BiliController extends ChangeNotifier {
       return;
     }
     try {
-      _user = await _client.fetchUser();
+      final BiliUser? user = await _client.fetchUser();
+      if (user == null) {
+        // nav 明确回了未登录：本地这份 SESSDATA 已经过期或被服务端吊销。
+        // 继续带着它请求，所有接口都会回 -101，界面表现就是“明明没登录却搜不了”。
+        await auth.logout();
+        _user = null;
+      } else {
+        _user = user;
+      }
     } on BiliException catch (e) {
       _error = e.friendly;
     } catch (_) {
       // 网络异常时保留登录态，仅用户信息为空。
     }
     notifyListeners();
+  }
+
+  /// 搜索；命中 -101 时清掉失效 Cookie 后重试一次。
+  ///
+  /// 用户视角的“不登录就搜不了”，多半是本地还留着过期的 SESSDATA：
+  /// 服务端直接拒绝，而界面又因为拿不到用户信息显示成未登录。
+  Future<List<BiliSearchResult>> _searchWithRecover(
+    String keyword, {
+    int page = 1,
+  }) async {
+    try {
+      return await _client.search(keyword, page: page);
+    } on BiliException catch (e) {
+      if (e.code != -101 || !auth.isLoggedIn) rethrow;
+      await auth.logout();
+      _user = null;
+      return _client.search(keyword, page: page);
+    }
   }
 
   Future<void> search(String keyword, {int page = 1}) async {
@@ -85,7 +116,7 @@ class BiliController extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      _results = await _client.search(kw, page: page);
+      _results = await _searchWithRecover(kw, page: page);
       if (_results.isEmpty) _error = '没有搜到结果，换个关键词试试';
     } on BiliException catch (e) {
       _error = e.friendly;
@@ -127,6 +158,47 @@ class BiliController extends ChangeNotifier {
     return track;
   }
 
+  /// 歌单里保存的占位曲目：只带元数据，直链留空。
+  ///
+  /// B 站音轨直链两小时就过期，存进歌单第二天必然放不了，
+  /// 因此统一用 `bili:<bvid>` 作为 id，播放时再解析。
+  Track stubOf(BiliSearchResult item) => Track(
+        id: 'bili:${item.bvid}',
+        title: item.title,
+        artist: item.author,
+        uri: '',
+        source: TrackSource.bilibili,
+        artwork: item.cover,
+        duration: item.duration,
+        extra: 'B站',
+      );
+
+  /// 按 bvid 重新取流，供歌单回放使用。失败返回 null（单曲跳过，不影响整单）。
+  Future<Track?> resolveBvid(String bvid) async {
+    try {
+      final BiliVideoInfo info = await _client.resolveAudio(bvid);
+      final BiliAudioStream? best = info.best;
+      if (best == null) return null;
+      final Track track = Track(
+        id: 'bili:$bvid',
+        title: info.title,
+        artist: info.owner,
+        uri: best.url,
+        headers: AppConfig.biliMediaHeaders,
+        artwork: info.cover,
+        duration: info.duration,
+        source: TrackSource.bilibili,
+        downloadUrl: best.url,
+        extra: best.label,
+      );
+      _trackCache[bvid] = track;
+      _cacheAt[bvid] = DateTime.now();
+      return track;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> play(BiliSearchResult item) async {
     try {
       _messages.add('正在解析音轨…');
@@ -166,7 +238,9 @@ class BiliController extends ChangeNotifier {
         },
       );
       _downloads[item.bvid] = file;
-      _messages.add('已保存：${file.path}');
+      _messages.add('已保存到 Music/Listener：${p.basename(file.path)}');
+      // 保存后顺手重扫一次，让下载的曲子立刻出现在媒体库里。
+      onDownloaded?.call();
     } on BiliDownloadException catch (e) {
       _messages.add(e.message);
     } on BiliException catch (e) {
@@ -180,6 +254,10 @@ class BiliController extends ChangeNotifier {
   }
 
   Future<void> openDownloadFolder() async {
+    if (Platform.isAndroid) {
+      _messages.add('下载保存在 手机存储/Music/Listener，用系统文件管理器或音乐 App 都能看到');
+      return;
+    }
     final Directory dir = await _downloader.targetDir();
     if (Platform.isMacOS) {
       await Process.run('open', <String>[dir.path]);

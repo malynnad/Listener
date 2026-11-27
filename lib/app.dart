@@ -7,6 +7,7 @@ import 'core/config.dart';
 import 'core/theme.dart';
 import 'features/bilibili/bili_controller.dart';
 import 'features/library/library_controller.dart';
+import 'features/library/playlist_controller.dart';
 import 'features/radio/radio_controller.dart';
 import 'features/shell/shell_page.dart';
 
@@ -24,12 +25,23 @@ class ListenerApp extends StatelessWidget {
           create: (_) => LibraryController(),
         ),
         ChangeNotifierProvider<BiliController>(
-          create: (BuildContext ctx) =>
-              BiliController(player: ctx.read<PlayerController>()),
+          create: (BuildContext ctx) => BiliController(
+            player: ctx.read<PlayerController>(),
+            // 下载落到 Music 后让媒体库重扫一次，曲子能立刻出现在列表里。
+            onDownloaded: () => ctx.read<LibraryController>().rescan(),
+          ),
         ),
         ChangeNotifierProvider<RadioController>(
           create: (BuildContext ctx) =>
               RadioController(player: ctx.read<PlayerController>()),
+        ),
+        // 歌单要能把 B 站曲目重新解析成可播直链，所以放在 BiliController 之后。
+        ChangeNotifierProvider<PlaylistController>(
+          create: (BuildContext ctx) => PlaylistController(
+            player: ctx.read<PlayerController>(),
+            resolveBili: (String bvid) =>
+                ctx.read<BiliController>().resolveBvid(bvid),
+          ),
         ),
       ],
       child: MaterialApp(

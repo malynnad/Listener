@@ -3,7 +3,7 @@ class AppConfig {
   AppConfig._();
 
   static const String appName = 'Listener';
-  static const String version = '0.1.1';
+  static const String version = '0.1.2';
 
   /// radio-browser.info 要求客户端带可识别的 UA，便于他们统计与联系。
   static const String userAgent =
@@ -74,4 +74,10 @@ class AppConfig {
     '/.thumbnails/',
     '/MIUI/.cache/',
   ];
+
+  /// 本应用自己的外部目录片段，与 `applicationId` 保持一致。
+  ///
+  /// B 站音轨下载落在 `/Android/data/<包名>/files/downloads`，会被上面的
+  /// `/Android/` 规则误伤。这里单独放行，让下载完的曲子能出现在本地库里。
+  static const String ownDataSegment = '/com.listener.player/';
 }

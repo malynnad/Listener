@@ -67,9 +67,13 @@ class AppPaths {
     return target;
   }
 
+  /// 下载落地点。
+  ///
+  /// 桌面端写 `~/Music/Listener`；Android 端真正的落地由 MediaStore 完成
+  /// （见 [MediaSaver]），这里返回的仍是应用私有目录，只作为通道不可用时的兜底。
   static Future<Directory> downloadDir() async {
     if (Platform.isAndroid) {
-      // Android 10+ 分区存储禁止直接写公共 Download 目录，
+      // Android 10+ 分区存储禁止直接写公共 Download，
       // 这里落在应用专属外部目录，无需任何存储权限。
       final Directory? ext = await getExternalStorageDirectory();
       final Directory base = ext ?? await supportDir();
@@ -77,9 +81,12 @@ class AppPaths {
       if (!await target.exists()) await target.create(recursive: true);
       return target;
     }
-    final Directory? downloads = await getDownloadsDirectory();
-    final Directory target =
-        Directory(p.join(downloads?.path ?? (await supportDir()).path, 'Listener'));
+    final String home = Platform.environment['HOME'] ?? '';
+    final Directory target = Directory(
+      home.isEmpty
+          ? p.join((await supportDir()).path, 'downloads')
+          : p.join(home, 'Music', 'Listener'),
+    );
     if (!await target.exists()) await target.create(recursive: true);
     return target;
   }

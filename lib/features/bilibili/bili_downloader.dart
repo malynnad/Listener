@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/config.dart';
 import '../../core/format.dart';
 import '../../core/json_store.dart';
+import '../../core/media_store.dart';
 
 /// B 站音轨下载器。
 ///
@@ -37,8 +39,17 @@ class BiliDownloader {
     required String baseName,
     void Function(double progress)? onProgress,
   }) async {
-    final Directory dir = await targetDir();
     final String safeBase = sanitizeFileName(baseName);
+    if (Platform.isAndroid) {
+      return _downloadViaMediaStore(
+        url: url,
+        baseName: safeBase,
+        name: '$safeBase.m4a',
+        onProgress: onProgress,
+      );
+    }
+
+    final Directory dir = await targetDir();
     final File outFile = _dedupe(dir, safeBase);
     final File tempFile = File('${outFile.path}.part');
 
@@ -71,6 +82,61 @@ class BiliDownloader {
     await tempFile.rename(outFile.path);
     onProgress?.call(1);
     return outFile;
+  }
+
+  /// Android：先落到缓存目录，再交给 MediaStore 写入公共 `Music/Listener`。
+  ///
+  /// 分区存储下不能直接写公共目录，所以必须两段式：临时文件 → 系统媒体库。
+  /// 通道不可用时退回应用私有目录，保证文件不丢。
+  Future<File> _downloadViaMediaStore({
+    required String url,
+    required String baseName,
+    required String name,
+    void Function(double progress)? onProgress,
+  }) async {
+    final Directory tmpDir = await getTemporaryDirectory();
+    final File temp = File(
+      p.join(tmpDir.path, 'bili_${DateTime.now().microsecondsSinceEpoch}.m4a'),
+    );
+    try {
+      await _dio.download(
+        url,
+        temp.path,
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: const <String, String>{
+            ...AppConfig.biliMediaHeaders,
+            'Accept': '*/*',
+          },
+        ),
+        onReceiveProgress: (int received, int total) {
+          if (onProgress == null) return;
+          onProgress(total > 0 ? received / total : -1);
+        },
+      );
+      if (!await temp.exists() || await temp.length() == 0) {
+        throw const BiliDownloadException('下载内容为空，音源链接可能已过期');
+      }
+      final String? saved =
+          await MediaSaver.saveAudio(path: temp.path, name: name);
+      if (saved != null) {
+        onProgress?.call(1);
+        return File(saved);
+      }
+      final Directory dir = await AppPaths.downloadDir();
+      final File out = _dedupe(dir, baseName);
+      await temp.copy(out.path);
+      onProgress?.call(1);
+      return out;
+    } finally {
+      if (await temp.exists()) {
+        try {
+          await temp.delete();
+        } catch (_) {
+          // 删临时文件失败不影响结果。
+        }
+      }
+    }
   }
 
   File _dedupe(Directory dir, String baseName) {

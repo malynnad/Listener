@@ -116,7 +116,11 @@ class _PlayerBarState extends State<PlayerBar> {
         IconButton(
           tooltip: '播放队列',
           onPressed: () => _showQueue(context, player),
-          icon: const Icon(Icons.queue_music_rounded),
+          icon: Badge(
+            isLabelVisible: player.queue.isNotEmpty,
+            label: Text('${player.queue.length}'),
+            child: const Icon(Icons.queue_music_rounded),
+          ),
         ),
       ],
     );
@@ -149,12 +153,29 @@ class _PlayerBarState extends State<PlayerBar> {
               tooltip: '停止播放',
               onPressed: player.stop,
               iconSize: 24,
+              visualDensity: VisualDensity.compact,
               color: AppColors.textSecondary,
               icon: const Icon(Icons.stop_rounded),
             ),
             IconButton(
+              tooltip: '下一首',
               onPressed: player.next,
+              iconSize: 24,
+              visualDensity: VisualDensity.compact,
+              color: AppColors.textSecondary,
               icon: const Icon(Icons.skip_next_rounded),
+            ),
+            IconButton(
+              tooltip: '播放队列',
+              onPressed: () => _showQueue(context, player),
+              iconSize: 24,
+              visualDensity: VisualDensity.compact,
+              color: AppColors.textSecondary,
+              icon: Badge(
+                isLabelVisible: player.queue.isNotEmpty,
+                label: Text('${player.queue.length}'),
+                child: const Icon(Icons.queue_music_rounded),
+              ),
             ),
           ],
         ),
@@ -207,44 +228,83 @@ class _PlayerBarState extends State<PlayerBar> {
                 child: Center(child: Text('队列是空的')),
               );
             }
-            return ListView.builder(
-              padding: const EdgeInsets.only(bottom: 24),
-              itemCount: p.queue.length,
-              itemBuilder: (BuildContext context, int index) {
-                final Track item = p.queue[index];
-                final bool active = index == p.index;
-                return ListTile(
-                  dense: true,
-                  leading: CoverArt(
-                    source: item.artwork,
-                    size: 36,
-                    fallbackSeed: item.title,
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 8, 4),
+                  child: Row(
+                    children: <Widget>[
+                      const Text(
+                        '播放队列',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${p.queue.length} 首',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () {
+                          p.clearQueue();
+                          Navigator.of(context).pop();
+                        },
+                        child: const Text('清空'),
+                      ),
+                    ],
                   ),
-                  title: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      color: active ? AppColors.accent : AppColors.textPrimary,
-                    ),
+                ),
+                Flexible(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: p.queue.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final Track item = p.queue[index];
+                      final bool active = index == p.index;
+                      return ListTile(
+                        dense: true,
+                        leading: CoverArt(
+                          source: item.artwork,
+                          size: 36,
+                          fallbackSeed: item.title,
+                        ),
+                        title: Text(
+                          item.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            color: active
+                                ? AppColors.accent
+                                : AppColors.textPrimary,
+                          ),
+                        ),
+                        subtitle: Text(
+                          item.artist ?? _sourceLabel(item.source),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11.5),
+                        ),
+                        trailing: active
+                            ? const Icon(Icons.graphic_eq_rounded,
+                                size: 18, color: AppColors.accent)
+                            : null,
+                        onTap: () {
+                          p.playAt(index);
+                          Navigator.of(context).pop();
+                        },
+                      );
+                    },
                   ),
-                  subtitle: Text(
-                    item.artist ?? _sourceLabel(item.source),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11.5),
-                  ),
-                  trailing: active
-                      ? const Icon(Icons.graphic_eq_rounded,
-                          size: 18, color: AppColors.accent)
-                      : null,
-                  onTap: () {
-                    p.playAt(index);
-                    Navigator.of(context).pop();
-                  },
-                );
-              },
+                ),
+              ],
             );
           },
         );

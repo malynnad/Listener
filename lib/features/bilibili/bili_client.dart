@@ -31,13 +31,62 @@ class BiliClient {
   final Map<String, String> Function() _cookieProvider;
   final Dio _dio;
 
+  /// 设备指纹 Cookie（buvid3 / buvid4），与登录态无关。
+  ///
+  /// 2025 年起 B 站对没有 buvid3 的请求做软风控：搜索接口照样返回 `code: 0`，
+  /// 但 `data` 里只有一个 `v_voucher`，没有 `result`——客户端看到的就是“没搜到结果”。
+  /// 这类请求不会报错，只能靠先补齐指纹 Cookie 才能拿到真实数据。
+  final Map<String, String> _device = <String, String>{};
+  bool _ensuringDevice = false;
+
   String? _mixinKey;
   DateTime? _mixinKeyAt;
 
-  String get _cookieHeader => _cookieProvider()
-      .entries
+  Map<String, String> get _allCookies => <String, String>{
+        ..._device,
+        ..._cookieProvider(),
+      };
+
+  String get _cookieHeader => _allCookies.entries
       .map((MapEntry<String, String> e) => '${e.key}=${e.value}')
       .join('; ');
+
+  /// 向 B 站的指纹接口申请 buvid3 / buvid4，成功后缓存在内存里。
+  Future<void> _ensureDeviceCookies() async {
+    if (_device.containsKey('buvid3')) return;
+    if (_cookieProvider().containsKey('buvid3')) return;
+    if (_ensuringDevice) return;
+    _ensuringDevice = true;
+    try {
+      final Response<dynamic> response = await _dio.get<dynamic>(
+        'https://api.bilibili.com/x/frontend/finger/spi',
+        options: Options(
+          headers: const <String, String>{
+            'User-Agent': AppConfig.browserUserAgent,
+            'Referer': 'https://www.bilibili.com',
+          },
+        ),
+      );
+      final dynamic body = response.data;
+      if (body is Map) {
+        final dynamic data = body['data'];
+        if (data is Map) {
+          final String? b3 = data['b_3']?.toString();
+          final String? b4 = data['b_4']?.toString();
+          if (b3 != null && b3.isNotEmpty) {
+            _device['buvid3'] = b3;
+            if (b4 != null && b4.isNotEmpty) _device['buvid4'] = b4;
+            _device['b_nut'] =
+                '${DateTime.now().millisecondsSinceEpoch ~/ 1000}';
+          }
+        }
+      }
+    } catch (_) {
+      // 拿不到指纹就退回裸请求：接口会给空结果，但不影响导航、播放等其它请求。
+    } finally {
+      _ensuringDevice = false;
+    }
+  }
 
   Map<String, String> get _commonHeaders {
     final String cookie = _cookieHeader;
@@ -51,6 +100,8 @@ class BiliClient {
     Map<String, String>? query,
     String? rawQuery,
   }) async {
+    // 搜索等 wbi 接口没有 buvid3 会拿到空结果，先补齐。
+    await _ensureDeviceCookies();
     final bool useRaw = rawQuery != null && rawQuery.isNotEmpty;
     try {
       final Response<dynamic> response = await _dio.get<dynamic>(
@@ -155,6 +206,11 @@ class BiliClient {
     ));
     final List<dynamic> items =
         data['result'] as List<dynamic>? ?? <dynamic>[];
+    if (items.isEmpty && data.containsKey('v_voucher')) {
+      // 风控软拦截的标志：code=0 但只给凭证、不给结果。
+      // 不能当成“没搜到”，否则用户和排查的人都会以为是关键词问题。
+      throw BiliException(-412, '请求被 B 站风控拦截，请稍后重试');
+    }
     final List<BiliSearchResult> results = <BiliSearchResult>[];
     for (final dynamic raw in items) {
       if (raw is! Map) continue;
