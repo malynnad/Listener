@@ -67,26 +67,40 @@ lib/
 ├── controllers/
 │   └── player_controller.dart # 队列、播放状态、循环/随机
 ├── core/                      # 配置、主题、JSON 存储、凭据、格式化
-├── models/                    # Track（统一曲目）、RadioStation
+├── models/                    # Track（统一曲目）、RadioStation、Playlist
 ├── services/
 │   └── playback_service.dart  # mpv 封装
 ├── features/
-│   ├── library/               # 本地扫描（isolate）、音乐库页
+│   ├── library/               # 本地扫描（isolate）、媒体库页、歌单控制与详情页
 │   ├── bilibili/              # wbi 签名、接口、扫码登录、下载、页面
 │   ├── radio/                 # radio-browser 客户端、页面
 │   └── shell/                 # 应用外壳与导航
-└── widgets/                   # 播放栏、封面、页头等共用组件
+└── widgets/                   # 播放栏、封面、页头、爱心按钮等共用组件
 
 tool/
 └── probe_bili.dart            # B 站接口自检脚本（纯 Dart，flutter 之外可直接跑）
 ```
+
+## 下载落盘（Android 分区存储）
+
+下载目标从应用私有目录改成了公共 `Music/Listener`，这是 Android 10+ 上唯一可行的做法：
+
+- 直接 `File('/storage/emulated/0/Music/xxx').write()` 一律 `Permission denied`，分区存储不允许
+- 必须走 MediaStore：`resolver.insert(Audio.Media.EXTERNAL_CONTENT_URI, {DISPLAY_NAME, RELATIVE_PATH, IS_PENDING=1})`
+  → 写流 → `IS_PENDING=0`
+- 因此下载是**两段式**：先下到 `getTemporaryDirectory()`，完成后经 MethodChannel 交给 Kotlin 落库，再删临时文件
+- `BiliDownloader._downloadViaMediaStore` 在通道不可用（个别 ROM 限制）时退回应用私有目录，保证文件不丢
+- 文件写入后是**公开可读**的，因此需要 `READ_MEDIA_AUDIO` 才能被 File API 遍历到；扫描根目录 `Music` 已覆盖它
+- minSdk 24 覆盖了 Android 9 及以下，那些版本还需要 `WRITE_EXTERNAL_STORAGE`（manifest 里限 `maxSdkVersion="28"`）
+
+歌单里的 B 站曲目只存元数据（`bili:<bvid>`），播放时经 `BiliClient.resolveAudio` 重新取流：
+直链两小时就过期，存下来必然失效。取流失败的曲目会被跳过而不是中断整单。
 
 ## 实现层面的已知限制
 
 - 未接入 `audio_service`：Android 上没有通知栏控制与锁屏控制，退到后台仍可播放但操作需回到应用内
 - Android 只能扫描 `AppConfig.androidMusicRoots` 里列出的约定目录（系统媒体目录与主流播放器下载目录），不做全盘遍历；分区存储下无法枚举整块外部存储
 - Android 上 `file_picker` 选中的文件是 SAF 内容 URI 的缓存副本，适合临时试听，不宜作为长期曲库
-- Android 下载落在应用专属目录，写入公共 `Download` 目录需要 MediaStore 适配
 - Android 端不内置 ffmpeg，DASH 音轨以分片 MP4 直接存为 `.m4a`，个别系统播放器可能不识别（mpv / VLC / ExoPlayer 正常）
 - macOS 端关闭了 App Sandbox，换取任意目录的曲库扫描能力；上架 App Store 需改为 security-scoped bookmark
 - 暂无歌词、无音频可视化（粒子效果未纳入本期范围）
