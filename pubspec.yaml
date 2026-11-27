@@ -1,0 +1,46 @@
+name: listener
+description: "Listener - 本地音乐 / B站 / 电台 一体化播放器"
+publish_to: 'none'
+version: 0.1.1+2
+
+environment:
+  sdk: ^3.14.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # 播放内核（mpv），支持自定义 HTTP 头，用于 B 站音轨的 Referer 注入
+  media_kit: ^1.2.6
+  media_kit_libs_audio: ^1.0.7
+
+  # 网络与签名
+  dio: ^5.11.1
+  crypto: ^3.0.8
+
+  # 状态管理与持久化
+  provider: ^6.1.5
+  path_provider: ^2.1.6
+  path: ^1.9.0
+  flutter_secure_storage: ^11.2.0
+
+  # 本地文件与元数据
+  file_picker: ^13.4.1
+  audio_metadata_reader: ^1.8.1
+
+  # Android 运行时媒体权限（扫描本机音乐目录）
+  permission_handler: ^13.0.2
+
+  # 二维码登录
+  qr_flutter: ^4.1.0
+
+  intl: ^0.20.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
