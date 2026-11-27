@@ -3,11 +3,11 @@ class AppConfig {
   AppConfig._();
 
   static const String appName = 'Listener';
-  static const String version = '0.1.0';
+  static const String version = '0.1.1';
 
   /// radio-browser.info 要求客户端带可识别的 UA，便于他们统计与联系。
   static const String userAgent =
-      'Listener/$version (+https://github.com/dannylam/listener)';
+      'Listener/$version (+https://github.com/mallynad/Listener)';
 
   /// B 站接口要求的浏览器 UA，缺省会被 403。
   static const String browserUserAgent =
